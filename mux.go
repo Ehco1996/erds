@@ -12,12 +12,14 @@ type HandlerFunc func(conn redcon.Conn, cmd redcon.Command)
 // ServeMux is an RESP command multiplexer.
 type ServeMux struct {
 	handlers map[string]HandlerFunc
+	aof      *aof
 }
 
 // NewServeMux allocates and returns a new ServeMux.
 func NewServeMux() *ServeMux {
 	return &ServeMux{
 		handlers: make(map[string]HandlerFunc),
+		aof:      newAof(),
 	}
 }
 
@@ -42,6 +44,9 @@ func (m *ServeMux) ServeRESP(conn redcon.Conn, cmd redcon.Command) {
 	command := strings.ToLower(string(cmd.Args[0]))
 	if f, ok := m.handlers[command]; ok {
 		f(conn, cmd)
+		if m.aof.isTurnOn() {
+			go m.aof.propagateAof(command, cmd)
+		}
 	} else {
 		conn.WriteError("ERR unknown command '" + command + "'")
 	}

@@ -2,6 +2,9 @@ package erds
 
 import (
 	"log"
+	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/tidwall/redcon"
 )
@@ -40,7 +43,24 @@ func closed(conn redcon.Conn, err error) {
 	log.Printf("closed: %s, err: %v", conn.RemoteAddr(), err)
 }
 
+func (s *Server) shutdown() {
+	s.mux.aof.saveAofFile()
+}
+
 // ListenAndServe start tcp server
-func (s *Server) ListenAndServe(addr string) error {
-	return redcon.ListenAndServe(addr, s.mux.ServeRESP, accept, closed)
+func (s *Server) ListenAndServe(addr string) {
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt)
+	signal.Notify(stop, syscall.SIGTERM)
+
+	go func() {
+		err := redcon.ListenAndServe(addr, s.mux.ServeRESP, accept, closed)
+		if err != nil {
+			log.Fatal(err)
+		}
+	}()
+
+	<-stop
+	log.Println("Shutdown reds Server save aof...")
+	s.shutdown()
 }

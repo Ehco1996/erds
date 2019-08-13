@@ -1,7 +1,12 @@
 package erds
 
 import (
+	"io"
+	"log"
+	"os"
 	"sync"
+
+	"github.com/tidwall/redcon"
 )
 
 // DB Global Hash DB
@@ -35,5 +40,46 @@ func (db *DB) delete(k string) bool {
 }
 
 func initDb() *DB {
-	return &DB{dict: make(map[string][]byte)}
+	db := &DB{dict: make(map[string][]byte)}
+	db.readAndLoadFromAof()
+	return db
+}
+
+func (db *DB) execCmd(cmd redcon.Command) {
+	f := string(cmd.Args[0])
+	switch f {
+	case "set":
+		if len(cmd.Args) == 3 {
+			db.set(string(cmd.Args[1]), cmd.Args[2])
+		}
+	case "del":
+		if len(cmd.Args) == 2 {
+			db.delete(string(cmd.Args[1]))
+		}
+	default:
+		return
+	}
+}
+
+func (db *DB) readAndLoadFromAof() {
+	file, err := os.Open("erds.aof")
+	defer file.Close()
+
+	if err != nil {
+		log.Printf("Can't open file. Error:'%s'", err.Error())
+		return
+	}
+	// aof_parser.
+	reader := newAofReader(file)
+	for {
+		resp, err := reader.readOneRESP()
+		if err == io.EOF {
+			break
+		}
+		cmd, err := redcon.Parse(resp)
+		if err != nil {
+			log.Fatal(err)
+		}
+		db.execCmd(cmd)
+	}
 }
